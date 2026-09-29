@@ -1,0 +1,870 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>MiTienda POS</title>
+    
+    <!-- Estilos y CDN -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    
+    <!-- PWA Manifest para convertirlo en aplicación móvil -->
+    <link rel="manifest" href="manifest.json">
+    <meta name="theme-color" content="#4f46e5">
+
+    <style>
+        .no-scrollbar::-webkit-scrollbar { display: none; }
+        .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+    </style>
+
+    <!-- Registro del Service Worker para funcionamiento Offline / App -->
+    <script>
+      if ('serviceWorker' in navigator) {
+        window.addEventListener('load', () => {
+          navigator.serviceWorker.register('./sw.js')
+            .then(reg => console.log('Service Worker registrado con éxito:', reg))
+            .catch(err => console.error('Error al registrar Service Worker:', err));
+        });
+      }
+    </script>
+</head>
+<body class="bg-gray-100 min-h-screen flex flex-col font-sans">
+
+    <!-- ENCABEZADO PRINCIPAL -->
+    <header class="bg-indigo-600 text-white p-4 shadow-md flex justify-between items-center">
+        <div>
+            <h1 id="app-title" class="font-bold text-lg leading-tight">Mi Tienda POS</h1>
+            <p class="text-xs text-indigo-200">Sistema de Ventas e Inventario</p>
+        </div>
+        <div class="text-right">
+            <span class="text-xs block text-indigo-200">Tasa Oficial</span>
+            <span class="font-extrabold text-sm bg-indigo-700 px-2 py-1 rounded-lg border border-indigo-500">
+                1 $ = <span id="header-rate">0.00</span> Bs
+            </span>
+        </div>
+    </header>
+
+    <!-- NAVEGACIÓN PRINCIPAL -->
+    <main class="flex-1 max-w-7xl w-full mx-auto p-4 pb-20 md:pb-6">
+        <div class="flex border-b border-gray-200 mb-4 bg-white rounded-lg shadow-sm p-1 overflow-x-auto no-scrollbar">
+            <button onclick="switchTab('pos')" id="tab-pos" class="flex-1 min-w-[85px] py-2 px-2 text-center text-xs sm:text-sm font-medium rounded-md bg-indigo-600 text-white transition-all">
+                <i class="fa-solid fa-cash-register mr-1"></i> POS
+            </button>
+            <button onclick="switchTab('sales')" id="tab-sales" class="flex-1 min-w-[85px] py-2 px-2 text-center text-xs sm:text-sm font-medium rounded-md text-gray-600 hover:text-indigo-600 transition-all">
+                <i class="fa-solid fa-receipt mr-1"></i> Ventas
+            </button>
+            <button onclick="switchTab('products')" id="tab-products" class="flex-1 min-w-[85px] py-2 px-2 text-center text-xs sm:text-sm font-medium rounded-md text-gray-600 hover:text-indigo-600 transition-all">
+                <i class="fa-solid fa-boxes-stacked mr-1"></i> Inventario
+            </button>
+            <button onclick="switchTab('debts')" id="tab-debts" class="flex-1 min-w-[85px] py-2 px-2 text-center text-xs sm:text-sm font-medium rounded-md text-gray-600 hover:text-indigo-600 transition-all">
+                <i class="fa-solid fa-hand-holding-dollar mr-1"></i> Deudores
+            </button>
+            <button onclick="switchTab('banks')" id="tab-banks" class="flex-1 min-w-[85px] py-2 px-2 text-center text-xs sm:text-sm font-medium rounded-md text-gray-600 hover:text-indigo-600 transition-all">
+                <i class="fa-solid fa-building-columns mr-1"></i> Cuentas
+            </button>
+            <button onclick="switchTab('settings')" id="tab-settings" class="flex-1 min-w-[85px] py-2 px-2 text-center text-xs sm:text-sm font-medium rounded-md text-gray-600 hover:text-indigo-600 transition-all">
+                <i class="fa-solid fa-gear mr-1"></i> Config
+            </button>
+        </div>
+
+        <!-- SECCIÓN POS (VENTAS DIRECTAS) -->
+        <div id="view-pos" class="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <div class="md:col-span-2 space-y-4">
+                <input type="text" id="search-prod" oninput="renderPOSProducts()" placeholder="Buscar producto por nombre..." class="w-full p-2.5 border rounded-lg shadow-sm focus:ring-2 focus:ring-indigo-500 outline-none">
+                <div id="pos-products-list" class="grid grid-cols-2 sm:grid-cols-3 gap-3"></div>
+            </div>
+            <div class="bg-white p-4 rounded-xl shadow-md border flex flex-col h-[520px]">
+                <h2 class="font-bold text-lg mb-2 text-gray-700 flex items-center justify-between">
+                    <span>Carrito</span>
+                    <button onclick="clearCart()" class="text-xs text-red-500 hover:underline">Vaciar</button>
+                </h2>
+                <div id="cart-items" class="flex-1 overflow-y-auto space-y-2 border-y py-2 my-2 no-scrollbar"></div>
+                <div class="space-y-1 text-sm border-t pt-2">
+                    <div class="flex justify-between text-gray-600"><span>Subtotal:</span><span id="cart-subtotal">$0.00</span></div>
+                    <div class="flex justify-between text-gray-600"><span>IVA:</span><span id="cart-tax">$0.00</span></div>
+                    <div class="flex justify-between font-bold text-base text-indigo-700 border-t pt-1">
+                        <span>Total USD:</span><span id="cart-total-usd">$0.00</span>
+                    </div>
+                    <div class="flex justify-between font-bold text-base text-green-700">
+                        <span>Total Bs:</span><span id="cart-total-bs">0.00 Bs</span>
+                    </div>
+                </div>
+                <div class="mt-2">
+                    <label class="text-xs text-gray-500 font-semibold">Cuenta o Método de Pago:</label>
+                    <select id="pos-bank-select" class="w-full p-2 border rounded-lg text-xs bg-gray-50 font-semibold text-gray-700 mt-1">
+                        <!-- Opciones dinámicas -->
+                    </select>
+                </div>
+                <button onclick="checkout()" class="w-full mt-3 bg-green-600 hover:bg-green-700 text-white font-bold py-2.5 rounded-lg shadow transition-all">
+                    Procesar Venta
+                </button>
+            </div>
+        </div>
+
+        <!-- SECCIÓN HISTORIAL DE VENTAS -->
+        <div id="view-sales" class="hidden space-y-4">
+            <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                <div class="bg-white p-3 rounded-xl border shadow-sm">
+                    <p class="text-xs text-gray-500 font-semibold">Ventas del Día (USD)</p>
+                    <p id="sales-today-usd" class="text-xl font-bold text-green-600">$0.00</p>
+                </div>
+                <div class="bg-white p-3 rounded-xl border shadow-sm">
+                    <p class="text-xs text-gray-500 font-semibold">Ventas del Día (Bs)</p>
+                    <p id="sales-today-bs" class="text-xl font-bold text-indigo-600">0.00 Bs</p>
+                </div>
+                <div class="bg-white p-3 rounded-xl border shadow-sm">
+                    <p class="text-xs text-gray-500 font-semibold">Transacciones Realizadas</p>
+                    <p id="sales-today-count" class="text-xl font-bold text-gray-700">0</p>
+                </div>
+            </div>
+
+            <div class="flex justify-between items-center bg-white p-4 rounded-xl shadow-sm border">
+                <h2 class="font-bold text-lg">Registro de Ventas Realizadas</h2>
+                <button onclick="clearSalesHistory()" class="text-xs bg-red-100 text-red-600 hover:bg-red-200 font-bold px-3 py-1.5 rounded-lg">
+                    <i class="fa-solid fa-trash mr-1"></i> Borrar Historial
+                </button>
+            </div>
+
+            <div class="bg-white rounded-xl shadow-sm border overflow-x-auto">
+                <table class="w-full text-left border-collapse">
+                    <thead class="bg-gray-50 border-b text-xs text-gray-500 uppercase">
+                        <tr>
+                            <th class="p-3">ID / Fecha</th>
+                            <th class="p-3">Detalle Productos</th>
+                            <th class="p-3">Método / Banco</th>
+                            <th class="p-3 text-right">Total USD</th>
+                            <th class="p-3 text-right">Total Bs</th>
+                        </tr>
+                    </thead>
+                    <tbody id="sales-table-body" class="divide-y text-sm"></tbody>
+                </table>
+            </div>
+        </div>
+
+        <!-- SECCIÓN INVENTARIO -->
+        <div id="view-products" class="hidden space-y-4">
+            <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                <div class="bg-white p-3 rounded-xl border shadow-sm">
+                    <p class="text-xs text-gray-500 font-semibold">Variedad de Productos</p>
+                    <p id="inv-total-items" class="text-xl font-bold text-indigo-600">0</p>
+                </div>
+                <div class="bg-white p-3 rounded-xl border shadow-sm">
+                    <p class="text-xs text-gray-500 font-semibold">Existencias Totales</p>
+                    <p id="inv-total-stock" class="text-xl font-bold text-indigo-600">0.00</p>
+                </div>
+                <div class="bg-white p-3 rounded-xl border shadow-sm">
+                    <p class="text-xs text-gray-500 font-semibold">Valor Total del Inventario</p>
+                    <p id="inv-total-val-usd" class="text-lg font-bold text-green-600">$0.00</p>
+                    <p id="inv-total-val-bs" class="text-xs text-gray-500 font-bold">0.00 Bs</p>
+                </div>
+            </div>
+
+            <div class="flex justify-between items-center bg-white p-4 rounded-xl shadow-sm border">
+                <h2 class="font-bold text-lg">Control de Inventario</h2>
+                <button onclick="openProductModal()" class="bg-indigo-600 text-white px-4 py-2 rounded-lg text-sm font-semibold hover:bg-indigo-700">
+                    + Nuevo Producto
+                </button>
+            </div>
+
+            <div class="bg-white rounded-xl shadow-sm border overflow-x-auto">
+                <table class="w-full text-left border-collapse">
+                    <thead class="bg-gray-50 border-b text-xs text-gray-500 uppercase">
+                        <tr>
+                            <th class="p-3">Producto</th>
+                            <th class="p-3">Precio USD</th>
+                            <th class="p-3">Unidad</th>
+                            <th class="p-3">Stock Disponible</th>
+                            <th class="p-3 text-right">Acción</th>
+                        </tr>
+                    </thead>
+                    <tbody id="products-table-body" class="divide-y text-sm"></tbody>
+                </table>
+            </div>
+        </div>
+
+        <!-- SECCIÓN DEUDORES -->
+        <div id="view-debts" class="hidden space-y-4">
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div class="bg-white p-3 rounded-xl border shadow-sm">
+                    <p class="text-xs text-gray-500 font-semibold">Total por Cobrar (USD)</p>
+                    <p id="debts-total-usd" class="text-xl font-bold text-red-600">$0.00</p>
+                </div>
+                <div class="bg-white p-3 rounded-xl border shadow-sm">
+                    <p class="text-xs text-gray-500 font-semibold">Total por Cobrar (Bs)</p>
+                    <p id="debts-total-bs" class="text-xl font-bold text-indigo-600">0.00 Bs</p>
+                </div>
+            </div>
+
+            <div class="flex justify-between items-center bg-white p-4 rounded-xl shadow-sm border">
+                <h2 class="font-bold text-lg">Cuentas por Cobrar (Fiado)</h2>
+                <button onclick="openDebtModal()" class="bg-indigo-600 text-white px-4 py-2 rounded-lg text-sm font-semibold hover:bg-indigo-700">
+                    + Registrar Deudores
+                </button>
+            </div>
+            <div id="debts-list" class="grid grid-cols-1 md:grid-cols-2 gap-4"></div>
+        </div>
+
+        <!-- SECCIÓN CUENTAS BANCARIAS Y BALANCES -->
+        <div id="view-banks" class="hidden space-y-4">
+            <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center bg-white p-4 rounded-xl shadow-sm border gap-2">
+                <div>
+                    <h2 class="font-bold text-lg">Cuentas Bancarias y Métodos de Pago</h2>
+                    <p class="text-xs text-gray-500">Agrega tus cuentas para recibir dinero y llevar el control del saldo recibido en cada una.</p>
+                </div>
+                <div class="flex space-x-2 w-full sm:w-auto">
+                    <button onclick="resetAllBankBalances()" class="flex-1 sm:flex-initial bg-amber-500 text-white px-3 py-2 rounded-lg text-xs font-bold hover:bg-amber-600 shadow transition-all">
+                        <i class="fa-solid fa-rotate-left mr-1"></i> Reiniciar Todos los Balances
+                    </button>
+                    <button onclick="openBankModal()" class="flex-1 sm:flex-initial bg-indigo-600 text-white px-3 py-2 rounded-lg text-xs font-bold hover:bg-indigo-700 shadow transition-all">
+                        + Nueva Cuenta
+                    </button>
+                </div>
+            </div>
+
+            <div id="banks-list" class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4"></div>
+        </div>
+
+        <!-- SECCIÓN CONFIGURACIÓN -->
+        <div id="view-settings" class="hidden space-y-4">
+            <div class="bg-white p-4 rounded-xl shadow-sm border max-w-lg mx-auto space-y-4">
+                <h2 class="font-bold text-lg border-b pb-2">Ajustes Generales</h2>
+                <div>
+                    <label class="text-sm font-semibold text-gray-700">Nombre de la Tienda</label>
+                    <input type="text" id="setting-store-name" class="w-full p-2 border rounded mt-1">
+                </div>
+                <div>
+                    <label class="text-sm font-semibold text-gray-700">Tasa del Dólar (Bs. por 1 $)</label>
+                    <input type="number" step="0.01" id="setting-usd-rate" class="w-full p-2 border rounded mt-1">
+                </div>
+                <div>
+                    <label class="text-sm font-semibold text-gray-700">Porcentaje de IVA (%)</label>
+                    <input type="number" step="1" id="setting-tax-rate" class="w-full p-2 border rounded mt-1">
+                </div>
+                <button onclick="saveSettings()" class="w-full bg-indigo-600 text-white py-2.5 rounded-lg font-bold">Guardar Ajustes</button>
+            </div>
+        </div>
+    </main>
+
+    <!-- Modal Seleccionar Banco para WhatsApp -->
+    <div id="modal-select-bank-wa" class="hidden fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
+        <div class="bg-white rounded-xl shadow-xl max-w-md w-full p-4 space-y-3">
+            <h3 class="font-bold text-lg">Seleccionar Cuenta para Cobro</h3>
+            <p class="text-xs text-gray-500">Elija la cuenta bancaria cuyos datos desea adjuntar en el mensaje de cobro por WhatsApp:</p>
+            <select id="wa-bank-select" class="w-full p-2 border rounded-lg text-sm bg-white font-semibold">
+                <!-- Cuentas registradas -->
+            </select>
+            <div class="flex justify-end space-x-2 pt-2">
+                <button onclick="closeModal('modal-select-bank-wa')" class="px-4 py-2 border rounded text-sm">Cancelar</button>
+                <button onclick="confirmWhatsAppMessage()" class="px-4 py-2 bg-green-600 text-white rounded text-sm font-bold flex items-center">
+                    Continuar a WhatsApp
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal WhatsApp Generado -->
+    <div id="modal-whatsapp" class="hidden fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
+        <div class="bg-white rounded-xl shadow-xl max-w-md w-full p-4 space-y-3">
+            <h3 class="font-bold text-lg">Mensaje para WhatsApp</h3>
+            <textarea id="wa-text" class="w-full p-2.5 border rounded-lg h-44 text-xs font-mono"></textarea>
+            <div class="flex justify-end space-x-2">
+                <button onclick="closeModal('modal-whatsapp')" class="px-4 py-2 border rounded-lg text-sm">Cancelar</button>
+                <button onclick="sendToWhatsApp()" class="px-4 py-2 bg-green-600 text-white rounded-lg text-sm font-bold flex items-center">
+                    <i class="fa-brands fa-whatsapp mr-1 text-lg"></i> Abrir WhatsApp
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal Nueva/Editar Cuenta Bancaria -->
+    <div id="modal-bank" class="hidden fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
+        <div class="bg-white rounded-xl shadow-xl max-w-md w-full p-4 space-y-3">
+            <h3 id="modal-bank-title" class="font-bold text-lg">Registrar Cuenta Bancaria</h3>
+            <input type="hidden" id="bank-id">
+            <div><label class="text-xs text-gray-500">Nombre del Banco / Método (ej: Banesco, Zelle, Efectivo)</label><input type="text" id="bank-name-input" class="w-full p-2 border rounded"></div>
+            <div><label class="text-xs text-gray-500">Moneda Principal</label>
+                <select id="bank-currency-input" class="w-full p-2 border rounded bg-white">
+                    <option value="Bs">Bolívares (Bs)</option>
+                    <option value="USD">Dólares ($)</option>
+                </select>
+            </div>
+            <div><label class="text-xs text-gray-500">Detalles de Pago (Titular, Cédula/RIF, Teléfono, N° Cuenta, etc.)</label>
+                <textarea id="bank-details-input" class="w-full p-2 border rounded h-24 text-xs" placeholder="Ej: CI: 12345678, Tlf: 04141234567"></textarea>
+            </div>
+            <div class="flex justify-end space-x-2 pt-2">
+                <button onclick="closeModal('modal-bank')" class="px-4 py-2 border rounded text-sm">Cancelar</button>
+                <button onclick="saveBank()" class="px-4 py-2 bg-indigo-600 text-white rounded text-sm font-bold">Guardar Cuenta</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal Producto -->
+    <div id="modal-product" class="hidden fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
+        <div class="bg-white rounded-xl shadow-xl max-w-md w-full p-4 space-y-3">
+            <h3 id="modal-prod-title" class="font-bold text-lg">Nuevo Producto</h3>
+            <input type="hidden" id="prod-id">
+            <div><label class="text-xs text-gray-500">Nombre del Producto</label><input type="text" id="prod-name" class="w-full p-2 border rounded"></div>
+            <div><label class="text-xs text-gray-500">Precio USD</label><input type="number" step="0.01" id="prod-price" class="w-full p-2 border rounded"></div>
+            <div>
+                <label class="text-xs text-gray-500">Unidad de Medida</label>
+                <select id="prod-unit" class="w-full p-2 border rounded bg-white">
+                    <option value="ud">Unidad (ud)</option>
+                    <option value="kg">Kilogramo (kg)</option>
+                    <option value="g">Gramo (g)</option>
+                    <option value="lt">Litro (lt)</option>
+                    <option value="ml">Mililitro (ml)</option>
+                </select>
+            </div>
+            <div><label class="text-xs text-gray-500">Stock Inicial</label><input type="number" step="0.001" id="prod-stock" class="w-full p-2 border rounded"></div>
+            <div class="flex justify-end space-x-2 pt-2">
+                <button onclick="closeModal('modal-product')" class="px-4 py-2 border rounded text-sm">Cancelar</button>
+                <button onclick="saveProduct()" class="px-4 py-2 bg-indigo-600 text-white rounded text-sm font-bold">Guardar</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal Deudores -->
+    <div id="modal-debt" class="hidden fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
+        <div class="bg-white rounded-xl shadow-xl max-w-md w-full p-4 space-y-3">
+            <h3 class="font-bold text-lg">Registrar Cuenta por Cobrar</h3>
+            <div><label class="text-xs text-gray-500">Nombre del Cliente</label><input type="text" id="debt-client-name" class="w-full p-2 border rounded"></div>
+            <div><label class="text-xs text-gray-500">Teléfono (para WhatsApp)</label><input type="text" id="debt-client-phone" placeholder="Ej: 04141234567" class="w-full p-2 border rounded"></div>
+            <div><label class="text-xs text-gray-500">Monto Pendiente (USD)</label><input type="number" step="0.01" id="debt-amount" class="w-full p-2 border rounded"></div>
+            <div><label class="text-xs text-gray-500">Concepto / Nota</label><input type="text" id="debt-note" placeholder="Ej: Fiado de productos del 15 de Oct" class="w-full p-2 border rounded"></div>
+            <div class="flex justify-end space-x-2 pt-2">
+                <button onclick="closeModal('modal-debt')" class="px-4 py-2 border rounded text-sm">Cancelar</button>
+                <button onclick="saveDebt()" class="px-4 py-2 bg-indigo-600 text-white rounded text-sm font-bold">Guardar Deudor</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // CARGA Y PERSISTENCIA DE DATOS CON LOCALSTORAGE
+        let storeData = JSON.parse(localStorage.getItem('pos_store')) || { name: "Mi Tienda POS", rate: 45.00, tax: 16 };
+        let products = JSON.parse(localStorage.getItem('pos_products')) || [
+            { id: 1, name: "Arroz 1kg", price: 1.20, unit: "ud", stock: 25 },
+            { id: 2, name: "Queso Blanco", price: 5.50, unit: "kg", stock: 12.5 },
+            { id: 3, name: "Leche Líquida", price: 1.50, unit: "lt", stock: 18 }
+        ];
+        let debts = JSON.parse(localStorage.getItem('pos_debts')) || [];
+        let salesHistory = JSON.parse(localStorage.getItem('pos_sales')) || [];
+        let banks = JSON.parse(localStorage.getItem('pos_bank_accounts')) || [
+            { id: 1, name: "Pago Móvil Banesco", currency: "Bs", details: "RIF: J-12345678\nTlf: 0414-0000000\nBanesco (0134)", totalUSD: 0, totalBs: 0 },
+            { id: 2, name: "Caja Chica / Efectivo USD", currency: "USD", details: "Pago directo en caja $", totalUSD: 0, totalBs: 0 }
+        ];
+        
+        let cart = [];
+        let currentWaPhone = "";
+        let currentDebtIndex = null;
+
+        function saveAllToStorage() {
+            localStorage.setItem('pos_store', JSON.stringify(storeData));
+            localStorage.setItem('pos_products', JSON.stringify(products));
+            localStorage.setItem('pos_debts', JSON.stringify(debts));
+            localStorage.setItem('pos_sales', JSON.stringify(salesHistory));
+            localStorage.setItem('pos_bank_accounts', JSON.stringify(banks));
+        }
+
+        function init() {
+            document.getElementById('app-title').innerText = storeData.name;
+            document.getElementById('header-rate').innerText = storeData.rate.toFixed(2);
+            document.getElementById('setting-store-name').value = storeData.name;
+            document.getElementById('setting-usd-rate').value = storeData.rate;
+            document.getElementById('setting-tax-rate').value = storeData.tax;
+
+            renderPOSProducts();
+            renderProductsTable();
+            renderDebts();
+            renderSalesHistory();
+            renderBanks();
+            populateBankSelects();
+        }
+
+        function switchTab(tab) {
+            ['pos', 'sales', 'products', 'debts', 'banks', 'settings'].forEach(t => {
+                document.getElementById(`view-${t}`).classList.add('hidden');
+                document.getElementById(`tab-${t}`).className = "flex-1 min-w-[85px] py-2 px-2 text-center text-xs sm:text-sm font-medium rounded-md text-gray-600 hover:text-indigo-600 transition-all";
+            });
+            document.getElementById(`view-${tab}`).classList.remove('hidden');
+            document.getElementById(`tab-${tab}`).className = "flex-1 min-w-[85px] py-2 px-2 text-center text-xs sm:text-sm font-medium rounded-md bg-indigo-600 text-white transition-all";
+        }
+
+        function populateBankSelects() {
+            const posSelect = document.getElementById('pos-bank-select');
+            const waSelect = document.getElementById('wa-bank-select');
+            posSelect.innerHTML = '';
+            waSelect.innerHTML = '';
+
+            banks.forEach(b => {
+                posSelect.innerHTML += `<option value="${b.id}">${b.name} (${b.currency})</option>`;
+                waSelect.innerHTML += `<option value="${b.id}">${b.name} (${b.currency})</option>`;
+            });
+        }
+
+        function closeModal(id) {
+            document.getElementById(id).classList.add('hidden');
+        }
+
+        /* --- MÓDULO BANCARIO / CUENTAS --- */
+        function renderBanks() {
+            const container = document.getElementById('banks-list');
+            container.innerHTML = '';
+            banks.forEach(b => {
+                container.innerHTML += `
+                    <div class="bg-white p-4 rounded-xl border shadow-sm space-y-2 flex flex-col justify-between">
+                        <div>
+                            <div class="flex justify-between items-center border-b pb-2">
+                                <h3 class="font-bold text-indigo-700">${b.name}</h3>
+                                <span class="text-[10px] font-bold px-2 py-0.5 rounded ${b.currency === 'USD' ? 'bg-green-100 text-green-700' : 'bg-blue-100 text-blue-700'}">${b.currency}</span>
+                            </div>
+                            <pre class="text-xs text-gray-600 font-sans mt-2 whitespace-pre-wrap">${b.details || 'Sin detalles'}</pre>
+                        </div>
+                        <div class="border-t pt-2 mt-2 space-y-1">
+                            <div class="flex justify-between text-xs font-semibold text-gray-500">
+                                <span>Ingreso Acumulado USD:</span>
+                                <span class="text-green-600 font-bold">$${(b.totalUSD || 0).toFixed(2)}</span>
+                            </div>
+                            <div class="flex justify-between text-xs font-semibold text-gray-500">
+                                <span>Ingreso Acumulado Bs:</span>
+                                <span class="text-indigo-600 font-bold">${(b.totalBs || 0).toFixed(2)} Bs</span>
+                            </div>
+                            <div class="pt-2 border-t flex justify-between items-center text-xs font-bold">
+                                <button onclick="resetBankBalance(${b.id})" class="text-amber-600 hover:text-amber-700 hover:underline flex items-center">
+                                    <i class="fa-solid fa-rotate-left mr-1"></i> Reiniciar
+                                </button>
+                                <div class="space-x-2">
+                                    <button onclick="editBank(${b.id})" class="text-indigo-600 hover:underline">Editar</button>
+                                    <button onclick="deleteBank(${b.id})" class="text-red-500 hover:underline">Eliminar</button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                `;
+            });
+        }
+
+        function resetBankBalance(id) {
+            const b = banks.find(x => x.id === id);
+            if (!b) return;
+            if (!confirm(`¿Desea reiniciar en $0.00 el balance acumulado de "${b.name}"?`)) return;
+            b.totalUSD = 0;
+            b.totalBs = 0;
+            saveAllToStorage();
+            renderBanks();
+        }
+
+        function resetAllBankBalances() {
+            if (!confirm('¿Está seguro de reiniciar los balances de TODAS las cuentas bancarias a $0.00?')) return;
+            banks.forEach(b => {
+                b.totalUSD = 0;
+                b.totalBs = 0;
+            });
+            saveAllToStorage();
+            renderBanks();
+            alert('Se han reiniciado los balances de todas las cuentas.');
+        }
+
+        function openBankModal() {
+            document.getElementById('bank-id').value = '';
+            document.getElementById('bank-name-input').value = '';
+            document.getElementById('bank-currency-input').value = 'Bs';
+            document.getElementById('bank-details-input').value = '';
+            document.getElementById('modal-bank-title').innerText = 'Nueva Cuenta / Método';
+            document.getElementById('modal-bank').classList.remove('hidden');
+        }
+
+        function editBank(id) {
+            const b = banks.find(x => x.id === id);
+            if (!b) return;
+            document.getElementById('bank-id').value = b.id;
+            document.getElementById('bank-name-input').value = b.name;
+            document.getElementById('bank-currency-input').value = b.currency;
+            document.getElementById('bank-details-input').value = b.details;
+            document.getElementById('modal-bank-title').innerText = 'Editar Cuenta';
+            document.getElementById('modal-bank').classList.remove('hidden');
+        }
+
+        function saveBank() {
+            const id = document.getElementById('bank-id').value;
+            const name = document.getElementById('bank-name-input').value.trim();
+            const currency = document.getElementById('bank-currency-input').value;
+            const details = document.getElementById('bank-details-input').value.trim();
+
+            if (!name) return alert('Escriba el nombre del banco o método');
+
+            if (id) {
+                const b = banks.find(x => x.id == id);
+                if (b) { b.name = name; b.currency = currency; b.details = details; }
+            } else {
+                banks.push({ id: Date.now(), name, currency, details, totalUSD: 0, totalBs: 0 });
+            }
+
+            saveAllToStorage();
+            closeModal('modal-bank');
+            renderBanks();
+            populateBankSelects();
+        }
+
+        function deleteBank(id) {
+            if (!confirm('¿Eliminar esta cuenta bancaria?')) return;
+            banks = banks.filter(b => b.id !== id);
+            saveAllToStorage();
+            renderBanks();
+            populateBankSelects();
+        }
+
+        /* --- MÓDULO POS Y CARRITO --- */
+        function renderPOSProducts() {
+            const query = document.getElementById('search-prod').value.toLowerCase();
+            const container = document.getElementById('pos-products-list');
+            container.innerHTML = '';
+
+            products.filter(p => p.name.toLowerCase().includes(query)).forEach(p => {
+                const bsPrice = (p.price * storeData.rate).toFixed(2);
+                const stockBadge = p.stock <= 0 ? 'bg-red-100 text-red-600' : 'bg-green-100 text-green-700';
+                container.innerHTML += `
+                    <div onclick="addToCart(${p.id})" class="bg-white p-3 rounded-xl border shadow-sm cursor-pointer hover:border-indigo-500 transition-all">
+                        <div class="font-bold text-sm text-gray-800">${p.name}</div>
+                        <div class="text-xs text-gray-500 font-semibold">${p.price.toFixed(2)} $ / ${bsPrice} Bs.</div>
+                        <div class="flex justify-between items-center mt-2">
+                            <span class="text-[10px] bg-indigo-50 text-indigo-600 px-1.5 py-0.5 rounded font-bold">${p.unit}</span>
+                            <span class="text-[10px] px-1.5 py-0.5 rounded font-bold ${stockBadge}">Stock: ${p.stock}</span>
+                        </div>
+                    </div>
+                `;
+            });
+        }
+
+        function addToCart(id) {
+            const prod = products.find(p => p.id === id);
+            if (prod.stock <= 0) return alert('Producto agotado');
+
+            let qty = 1;
+            if (['kg', 'g', 'lt', 'ml'].includes(prod.unit)) {
+                const input = prompt(`Cantidad o peso a vender (${prod.unit}):`, "1.00");
+                if (!input || isNaN(input) || parseFloat(input) <= 0) return;
+                qty = parseFloat(input);
+            }
+
+            const item = cart.find(i => i.id === id);
+            if (item) {
+                if (item.qty + qty > prod.stock) return alert('No hay suficiente stock');
+                item.qty += qty;
+            } else {
+                if (qty > prod.stock) return alert('No hay suficiente stock');
+                cart.push({ ...prod, qty });
+            }
+            renderCart();
+        }
+
+        function renderCart() {
+            const container = document.getElementById('cart-items');
+            container.innerHTML = '';
+            let subtotal = 0;
+
+            cart.forEach((item, index) => {
+                const itemTotal = item.price * item.qty;
+                subtotal += itemTotal;
+                container.innerHTML += `
+                    <div class="flex justify-between items-center text-xs bg-gray-50 p-2 rounded border">
+                        <div>
+                            <div class="font-bold">${item.name}</div>
+                            <div class="text-gray-500">${item.qty} ${item.unit} x $${item.price.toFixed(2)}</div>
+                        </div>
+                        <div class="flex items-center space-x-2">
+                            <span class="font-bold">$${itemTotal.toFixed(2)}</span>
+                            <button onclick="removeFromCart(${index})" class="text-red-500 text-sm"><i class="fa-solid fa-xmark"></i></button>
+                        </div>
+                    </div>
+                `;
+            });
+
+            const tax = subtotal * (storeData.tax / 100);
+            const totalUSD = subtotal + tax;
+            const totalBs = totalUSD * storeData.rate;
+
+            document.getElementById('cart-subtotal').innerText = `$${subtotal.toFixed(2)}`;
+            document.getElementById('cart-tax').innerText = `$${tax.toFixed(2)}`;
+            document.getElementById('cart-total-usd').innerText = `$${totalUSD.toFixed(2)}`;
+            document.getElementById('cart-total-bs').innerText = `${totalBs.toFixed(2)} Bs`;
+        }
+
+        function removeFromCart(index) {
+            cart.splice(index, 1);
+            renderCart();
+        }
+
+        function clearCart() {
+            cart = [];
+            renderCart();
+        }
+
+        function checkout() {
+            if (cart.length === 0) return alert('El carrito está vacío');
+
+            const bankId = document.getElementById('pos-bank-select').value;
+            const bank = banks.find(b => b.id == bankId);
+            if (!bank) return alert('Seleccione un método de pago');
+
+            let subtotal = cart.reduce((sum, item) => sum + (item.price * item.qty), 0);
+            let tax = subtotal * (storeData.tax / 100);
+            let totalUSD = subtotal + tax;
+            let totalBs = totalUSD * storeData.rate;
+
+            // Descontar inventario
+            cart.forEach(item => {
+                const prod = products.find(p => p.id === item.id);
+                if (prod) prod.stock -= item.qty;
+            });
+
+            // Registrar balance en banco
+            bank.totalUSD = (bank.totalUSD || 0) + totalUSD;
+            bank.totalBs = (bank.totalBs || 0) + totalBs;
+
+            // Guardar en el historial de ventas
+            const sale = {
+                id: Date.now(),
+                date: new Date().toLocaleString(),
+                items: [...cart],
+                bankName: bank.name,
+                totalUSD,
+                totalBs
+            };
+            salesHistory.unshift(sale);
+
+            saveAllToStorage();
+            clearCart();
+            renderPOSProducts();
+            renderProductsTable();
+            renderSalesHistory();
+            renderBanks();
+
+            alert('Venta procesada con éxito!');
+        }
+
+        /* --- MÓDULO INVENTARIO Y DEUDORES --- */
+        function renderProductsTable() {
+            const tbody = document.getElementById('products-table-body');
+            tbody.innerHTML = '';
+            let totalItems = products.length;
+            let totalStock = 0;
+            let totalValueUSD = 0;
+
+            products.forEach(p => {
+                totalStock += p.stock;
+                totalValueUSD += p.price * p.stock;
+                tbody.innerHTML += `
+                    <tr>
+                        <td class="p-3 font-semibold">${p.name}</td>
+                        <td class="p-3">$${p.price.toFixed(2)}</td>
+                        <td class="p-3">${p.unit}</td>
+                        <td class="p-3">${p.stock}</td>
+                        <td class="p-3 text-right space-x-2">
+                            <button onclick="editProduct(${p.id})" class="text-indigo-600 hover:underline">Editar</button>
+                            <button onclick="deleteProduct(${p.id})" class="text-red-500 hover:underline">Eliminar</button>
+                        </td>
+                    </tr>
+                `;
+            });
+
+            document.getElementById('inv-total-items').innerText = totalItems;
+            document.getElementById('inv-total-stock').innerText = totalStock.toFixed(2);
+            document.getElementById('inv-total-val-usd').innerText = `$${totalValueUSD.toFixed(2)}`;
+            document.getElementById('inv-total-val-bs').innerText = `${(totalValueUSD * storeData.rate).toFixed(2)} Bs`;
+        }
+
+        function openProductModal() {
+            document.getElementById('prod-id').value = '';
+            document.getElementById('prod-name').value = '';
+            document.getElementById('prod-price').value = '';
+            document.getElementById('prod-unit').value = 'ud';
+            document.getElementById('prod-stock').value = '';
+            document.getElementById('modal-prod-title').innerText = 'Nuevo Producto';
+            document.getElementById('modal-product').classList.remove('hidden');
+        }
+
+        function editProduct(id) {
+            const p = products.find(x => x.id === id);
+            if (!p) return;
+            document.getElementById('prod-id').value = p.id;
+            document.getElementById('prod-name').value = p.name;
+            document.getElementById('prod-price').value = p.price;
+            document.getElementById('prod-unit').value = p.unit;
+            document.getElementById('prod-stock').value = p.stock;
+            document.getElementById('modal-prod-title').innerText = 'Editar Producto';
+            document.getElementById('modal-product').classList.remove('hidden');
+        }
+
+        function saveProduct() {
+            const id = document.getElementById('prod-id').value;
+            const name = document.getElementById('prod-name').value.trim();
+            const price = parseFloat(document.getElementById('prod-price').value);
+            const unit = document.getElementById('prod-unit').value;
+            const stock = parseFloat(document.getElementById('prod-stock').value);
+
+            if (!name || isNaN(price) || isNaN(stock)) return alert('Complete todos los campos del producto.');
+
+            if (id) {
+                const p = products.find(x => x.id == id);
+                if (p) { p.name = name; p.price = price; p.unit = unit; p.stock = stock; }
+            } else {
+                products.push({ id: Date.now(), name, price, unit, stock });
+            }
+
+            saveAllToStorage();
+            closeModal('modal-product');
+            renderPOSProducts();
+            renderProductsTable();
+        }
+
+        function deleteProduct(id) {
+            if (!confirm('¿Eliminar este producto?')) return;
+            products = products.filter(p => p.id !== id);
+            saveAllToStorage();
+            renderPOSProducts();
+            renderProductsTable();
+        }
+
+        /* --- MÓDULO VENTAS --- */
+        function renderSalesHistory() {
+            const tbody = document.getElementById('sales-table-body');
+            tbody.innerHTML = '';
+            let totalUSD = 0;
+            let totalBs = 0;
+
+            salesHistory.forEach(s => {
+                totalUSD += s.totalUSD;
+                totalBs += s.totalBs;
+                const itemsText = s.items.map(i => `${i.name} (x${i.qty})`).join(', ');
+
+                tbody.innerHTML += `
+                    <tr>
+                        <td class="p-3 text-xs"><div class="font-bold">#${s.id}</div><div class="text-gray-400">${s.date}</div></td>
+                        <td class="p-3 text-xs">${itemsText}</td>
+                        <td class="p-3 text-xs font-semibold text-indigo-600">${s.bankName}</td>
+                        <td class="p-3 text-right font-bold text-green-600">$${s.totalUSD.toFixed(2)}</td>
+                        <td class="p-3 text-right font-bold text-indigo-600">${s.totalBs.toFixed(2)} Bs</td>
+                    </tr>
+                `;
+            });
+
+            document.getElementById('sales-today-usd').innerText = `$${totalUSD.toFixed(2)}`;
+            document.getElementById('sales-today-bs').innerText = `${totalBs.toFixed(2)} Bs`;
+            document.getElementById('sales-today-count').innerText = salesHistory.length;
+        }
+
+        function clearSalesHistory() {
+            if (!confirm('¿Seguro que desea vaciar el historial de ventas?')) return;
+            salesHistory = [];
+            saveAllToStorage();
+            renderSalesHistory();
+        }
+
+        /* --- MÓDULO DEUDORES Y WHATSAPP --- */
+        function renderDebts() {
+            const container = document.getElementById('debts-list');
+            container.innerHTML = '';
+            let totalUSD = 0;
+
+            debts.forEach((d, index) => {
+                totalUSD += d.amount;
+                const bsAmount = d.amount * storeData.rate;
+
+                container.innerHTML += `
+                    <div class="bg-white p-4 rounded-xl border shadow-sm space-y-2">
+                        <div class="flex justify-between items-center border-b pb-2">
+                            <div>
+                                <h3 class="font-bold text-gray-800">${d.name}</h3>
+                                <p class="text-xs text-gray-500">${d.phone || 'Sin Teléfono'}</p>
+                            </div>
+                            <span class="text-lg font-bold text-red-600">$${d.amount.toFixed(2)}</span>
+                        </div>
+                        <p class="text-xs text-gray-600">${d.note || 'Sin detalles'}</p>
+                        <div class="flex justify-between items-center border-t pt-2 text-xs">
+                            <span class="font-bold text-indigo-600">${bsAmount.toFixed(2)} Bs</span>
+                            <div class="space-x-2">
+                                <button onclick="openWaModal(${index})" class="bg-green-100 text-green-700 px-2 py-1 rounded font-bold"><i class="fa-brands fa-whatsapp"></i> Cobrar</button>
+                                <button onclick="deleteDebt(${index})" class="bg-indigo-100 text-indigo-700 px-2 py-1 rounded font-bold">Pagar / Eliminar</button>
+                            </div>
+                        </div>
+                    </div>
+                `;
+            });
+
+            document.getElementById('debts-total-usd').innerText = `$${totalUSD.toFixed(2)}`;
+            document.getElementById('debts-total-bs').innerText = `${(totalUSD * storeData.rate).toFixed(2)} Bs`;
+        }
+
+        function openDebtModal() {
+            document.getElementById('debt-client-name').value = '';
+            document.getElementById('debt-client-phone').value = '';
+            document.getElementById('debt-amount').value = '';
+            document.getElementById('debt-note').value = '';
+            document.getElementById('modal-debt').classList.remove('hidden');
+        }
+
+        function saveDebt() {
+            const name = document.getElementById('debt-client-name').value.trim();
+            const phone = document.getElementById('debt-client-phone').value.trim();
+            const amount = parseFloat(document.getElementById('debt-amount').value);
+            const note = document.getElementById('debt-note').value.trim();
+
+            if (!name || isNaN(amount)) return alert('Ingrese el nombre y el monto adeudado.');
+
+            debts.push({ name, phone, amount, note });
+            saveAllToStorage();
+            closeModal('modal-debt');
+            renderDebts();
+        }
+
+        function deleteDebt(index) {
+            if (!confirm('¿Marcar como saldada esta deuda?')) return;
+            debts.splice(index, 1);
+            saveAllToStorage();
+            renderDebts();
+        }
+
+        function openWaModal(index) {
+            currentDebtIndex = index;
+            document.getElementById('modal-select-bank-wa').classList.remove('hidden');
+        }
+
+        function confirmWhatsAppMessage() {
+            const debt = debts[currentDebtIndex];
+            const bankId = document.getElementById('wa-bank-select').value;
+            const bank = banks.find(b => b.id == bankId);
+
+            closeModal('modal-select-bank-wa');
+
+            const totalBs = (debt.amount * storeData.rate).toFixed(2);
+            const msg = `Hola ${debt.name}, recordatorio de pago en ${storeData.name}.\n\nMonto a pagar:\n$${debt.amount.toFixed(2)} USD o ${totalBs} Bs.\n\nDatos de Pago (${bank ? bank.name : ''}):\n${bank ? bank.details : ''}`;
+
+            currentWaPhone = debt.phone;
+            document.getElementById('wa-text').value = msg;
+            document.getElementById('modal-whatsapp').classList.remove('hidden');
+        }
+
+        function sendToWhatsApp() {
+            const text = encodeURIComponent(document.getElementById('wa-text').value);
+            const cleanPhone = currentWaPhone.replace(/[^0-9]/g, '');
+            const url = cleanPhone ? `https://wa.me/${cleanPhone}?text=${text}` : `https://wa.me/?text=${text}`;
+            window.open(url, '_blank');
+        }
+
+        /* --- CONFIGURACIÓN --- */
+        function saveSettings() {
+            storeData.name = document.getElementById('setting-store-name').value;
+            storeData.rate = parseFloat(document.getElementById('setting-usd-rate').value) || 1;
+            storeData.tax = parseFloat(document.getElementById('setting-tax-rate').value) || 0;
+
+            saveAllToStorage();
+            init();
+            alert('Ajustes guardados correctamente.');
+        }
+
+        // Inicializar aplicación
+        document.addEventListener('DOMContentLoaded', init);
+    </script>
+</body>
+</html>
